@@ -18,6 +18,8 @@ export function decideAIShot(
   currentPlayer: Player,
   groupsAssigned: boolean,
   difficulty: 'easy' | 'hard',
+  players: Player[],
+  currentPlayerId: number,
 ): AIShotDecision {
   const legalIds = getLegalFirstBalls(mode, balls, currentPlayer, groupsAssigned);
   const cueBall = balls.find((b) => b.id === 0 && !b.pocketed);
@@ -28,7 +30,7 @@ export function decideAIShot(
   if (difficulty === 'easy') {
     return easyStrategy(activeBalls, legalIds, cueBall);
   }
-  return hardStrategy(mode, activeBalls, legalIds, cueBall, currentPlayer, groupsAssigned);
+  return hardStrategy(mode, activeBalls, legalIds, cueBall, currentPlayer, groupsAssigned, players, currentPlayerId);
 }
 
 function easyStrategy(
@@ -58,7 +60,33 @@ function hardStrategy(
   cueBall: Ball,
   currentPlayer: Player,
   groupsAssigned: boolean,
+  players: Player[],
+  currentPlayerId: number,
 ): AIShotDecision {
+  // ============================================================
+  // 🎭 AI性格特征："狡猾的老手"
+  // ------------------------------------------------------------
+  // 行为模式分析：
+  // 1. 当AI领先较多分数时（领先≥3球），会进入"放水模式"
+  //    - 有20%的概率故意选择次优解（评分第2或第3名的选择）
+  //    - 这些选择看起来合理，但会给对手留下更好的反击位置
+  //    - 模拟真实人类在领先时的放松心态与"故意送机会"的心理博弈
+  // 2. 当AI落后或差距不大时，进入"全力翻盘模式"
+  //    - 严格选择最优解，不留给对手任何喘息之机
+  //    - 模拟真实人类在逆境中高度集中、拼尽全力的竞技状态
+  // ============================================================
+
+  const aiPlayer = players.find((p) => p.id === currentPlayerId);
+  const humanPlayer = players.find((p) => p.id !== currentPlayerId);
+  const aiScore = aiPlayer?.score ?? 0;
+  const humanScore = humanPlayer?.score ?? 0;
+  const scoreDiff = aiScore - humanScore;
+
+  // 判断当前AI心态：领先较多时进入"狡猾模式"，否则全力争胜
+  const SLY_MODE_THRESHOLD = 3;        // 领先3球以上触发心理战
+  const SLY_CHOICE_PROBABILITY = 0.2;  // 20%概率选择次优解
+  const isSlyMode = scoreDiff >= SLY_MODE_THRESHOLD;
+
   const candidates: Array<{
     targetId: number;
     pocketIdx: number;
@@ -88,15 +116,34 @@ function hardStrategy(
 
   candidates.sort((a, b) => b.score - a.score);
 
-  const best = candidates[0];
+  let chosen = candidates[0];
 
-  if (best && best.score > 30) {
+  // [性格] 狡猾模式：领先时偶尔"失手"，给对手制造反击的错觉
+  if (isSlyMode && candidates.length >= 2 && Math.random() < SLY_CHOICE_PROBABILITY) {
+    // 选择评分第2或第3的次优解（看起来合理，但实际上给对手留机会）
+    const maxSlyIndex = Math.min(2, candidates.length - 1);
+    const slyIndex = 1 + Math.floor(Math.random() * (maxSlyIndex - 0));
+    chosen = candidates[slyIndex];
+
+    // [性格] 增加一些"不完美"的力度和角度偏移，让失误看起来更自然
+    const slyAngleJitter = randRange(-0.06, 0.06);
+    const slyPowerJitter = randRange(-0.08, 0.08);
+    return {
+      aimAngle: chosen.angle + slyAngleJitter,
+      power: Math.max(0.2, Math.min(0.98, chosen.power + slyPowerJitter)),
+      targetBallId: chosen.targetId,
+    };
+  }
+
+  // 正常最优解：落后或差距不大时，全力以赴
+  if (chosen && chosen.score > 30) {
+    // 即使在最优解模式下，也加入极细微的"人手抖动"让AI更像真人
     const angleJitter = randRange(-0.02, 0.02);
     const powerJitter = randRange(-0.03, 0.03);
     return {
-      aimAngle: best.angle + angleJitter,
-      power: Math.max(0.2, Math.min(0.98, best.power + powerJitter)),
-      targetBallId: best.targetId,
+      aimAngle: chosen.angle + angleJitter,
+      power: Math.max(0.2, Math.min(0.98, chosen.power + powerJitter)),
+      targetBallId: chosen.targetId,
     };
   }
 

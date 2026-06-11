@@ -319,6 +319,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       currentPlayer,
       s.groupsAssigned,
       currentPlayer.aiDifficulty || 'easy',
+      s.players,
+      s.currentPlayerId,
     );
 
     set({ aimAngle: decision.aimAngle });
